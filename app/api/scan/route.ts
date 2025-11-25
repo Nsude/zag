@@ -2,8 +2,12 @@ import { NextResponse } from 'next/server';
 import * as cheerio from 'cheerio';
 import { generateEmailPermutations, extractDomain } from '@/app/lib/email-utils';
 import { isCompanyContacted } from '@/app/lib/db';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36';
+
+// Initialize Gemini
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
 async function fetchHtml(url: string) {
   try {
@@ -16,6 +20,49 @@ async function fetchHtml(url: string) {
     console.error(`Error fetching ${url}:`, error);
     return null;
   }
+}
+
+async function generatePOV(companyName: string, description: string): Promise<string> {
+    if (!process.env.GEMINI_API_KEY) {
+        console.warn("GEMINI_API_KEY is not set. Using original description.");
+        return description;
+    }
+
+    try {
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+        const prompt = `
+          I am writing a cold email to the founder of ${companyName}.
+          Their company description is: "${description}".
+          
+          I need a single sentence that demonstrates I understand their value proposition and the specific problem they solve. 
+          It should be a "point of view" (POV) statement, not just a summary.
+          
+          Example input description: "At Sierra, we’re creating a platform to help businesses build better, more human customer experiences with AI."
+          Example output: "Integrating AI into the customer service industry, so companies can actually provide 24/7 support is ingenious."
+          
+          Target output format: A single sentence. No quotes.
+          Context: The sentence will follow "You've built something incredible with ${companyName}. "
+          IMPORTANT: Do NOT include the phrase "You've built something incredible with ${companyName}" in your output. Start directly with your POV sentence.
+        `;
+    
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        let text = response.text().trim();
+
+        // Remove the repetitive phrase if it appears (handling straight and smart quotes)
+        // We escape the company name to be safe in regex
+        const escapedCompanyName = companyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        // Match "You've built..." with optional trailing punctuation and whitespace
+        const repetitionRegex = new RegExp(`^You['’]ve built something incredible with ${escapedCompanyName}[.!]*\\s*`, 'i');
+        text = text.replace(repetitionRegex, '');
+
+        // Remove quotes if the model adds them
+        text = text.replace(/^["']|["']$/g, '');
+        return text;
+    } catch (error) {
+        console.error("Error generating POV:", error);
+        return description; // Fallback
+    }
 }
 
 async function googleSearchFounders(companyName: string): Promise<string[]> {
@@ -171,11 +218,14 @@ export async function POST(request: Request) {
             ? generateEmailPermutations(firstName, lastName, domain) 
             : [`hello@${domain}`, `founders@${domain}`];
 
+        // Generate POV using Gemini
+        const pov = await generatePOV(companyName, description);
+
         const emailDraft = `Hi ${firstName || 'there'},
 
 I’m Meshach, I’m a Product Engineer and designer. I’ve worked with start-ups across Europe, taking products from raw idea to launch in weeks.
 
-You’ve built something incredible with ${companyName}. ${description ? description : ''}
+You’ve built something incredible with ${companyName}. ${pov}
 
 From what I can tell, the next challenge is scale: turning that great product into something even non-technical people can pick up and instantly get.
 
