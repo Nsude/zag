@@ -1,47 +1,39 @@
 'use client';
 
 import { useState } from 'react';
-
-interface ScanResult {
-  companyName: string;
-  websiteUrl: string;
-  rolesFound: boolean;
-  founders: string[];
-  emails: string[];
-  emailDraft: string;
-  domain: string;
-}
+import { useQuery, useMutation, useAction } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { Id } from "@/convex/_generated/dataModel";
 
 export default function Home() {
-  const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<ScanResult[]>([]);
+  const [scanning, setScanning] = useState(false);
+  const allResults = useQuery(api.companies.list) || [];
+  const results = allResults.filter((r: any) => r.status !== 'Blacklisted');
+  const runScan = useAction(api.scan.run);
+  const updateDraftMutation = useMutation(api.companies.updateDraft);
+  const markContactedMutation = useMutation(api.companies.markContacted);
+  const blacklistMutation = useMutation(api.companies.blacklist);
+
   const [status, setStatus] = useState<Record<string, string>>({});
 
   const startScan = async () => {
-    setLoading(true);
-    setResults([]);
+    setScanning(true);
     try {
-      const res = await fetch('/api/scan', {
-        method: 'POST',
-        body: JSON.stringify({ limit: 5 }),
-      });
-      const data = await res.json();
-      setResults(data.results || []);
+      await runScan({ limit: 5 });
     } catch (error) {
       console.error('Scan failed:', error);
       alert('Scan failed');
     } finally {
-      setLoading(false);
+      setScanning(false);
     }
   };
 
-  const sendEmail = async (result: ScanResult, index: number) => {
-    const currentStatus = status[result.domain];
-    if (currentStatus === 'Sent') return;
+  const sendEmail = async (result: any) => {
+    const currentStatus = status[result.domain] || result.status;
+    if (currentStatus === 'Sent' || currentStatus === 'Contacted') return;
 
     setStatus(prev => ({ ...prev, [result.domain]: 'Sending...' }));
 
-    // Use the first generated email or allow user to pick (simplification: use first)
     const to = result.emails[0];
     if (!to) {
       alert('No email address generated');
@@ -54,7 +46,7 @@ export default function Home() {
         method: 'POST',
         body: JSON.stringify({
           to,
-          subject: `Intro: ${result.companyName}`, // Simple subject
+          subject: `Intro: ${result.companyName}`,
           body: result.emailDraft,
           companyName: result.companyName,
           domain: result.domain,
@@ -64,6 +56,7 @@ export default function Home() {
 
       if (res.ok) {
         setStatus(prev => ({ ...prev, [result.domain]: 'Sent' }));
+        await markContactedMutation({ id: result._id });
       } else {
         setStatus(prev => ({ ...prev, [result.domain]: 'Failed' }));
       }
@@ -73,12 +66,6 @@ export default function Home() {
     }
   };
 
-  const updateDraft = (index: number, newDraft: string) => {
-    const newResults = [...results];
-    newResults[index].emailDraft = newDraft;
-    setResults(newResults);
-  };
-
   return (
     <main className="min-h-screen p-8 bg-gray-50 text-gray-900 font-sans">
       <div className="max-w-4xl mx-auto">
@@ -86,22 +73,22 @@ export default function Home() {
           <h1 className="text-3xl font-bold text-gray-900">Founder Outreach Automation</h1>
           <button
             onClick={startScan}
-            disabled={loading}
+            disabled={scanning}
             className="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
           >
-            {loading ? 'Scanning...' : 'Start Scan'}
+            {scanning ? 'Scanning...' : 'Start Scan'}
           </button>
         </header>
 
-        {results.length === 0 && !loading && (
+        {results.length === 0 && !scanning && (
           <div className="text-center py-20 text-gray-500">
             <p>Click "Start Scan" to find companies.</p>
           </div>
         )}
 
         <div className="space-y-6">
-          {results.map((result, index) => (
-            <div key={index} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+          {results.map((result: any) => (
+            <div key={result._id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <h2 className="text-xl font-semibold">{result.companyName}</h2>
@@ -119,6 +106,11 @@ export default function Home() {
                       No Founders Found
                     </span>
                   )}
+                  <div className="mt-1">
+                    {result.status === 'Contacted' && (
+                      <span className="text-xs text-green-600 font-bold">Contacted</span>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -126,7 +118,7 @@ export default function Home() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Email Draft</label>
                 <textarea
                   value={result.emailDraft}
-                  onChange={(e) => updateDraft(index, e.target.value)}
+                  onChange={(e) => updateDraftMutation({ id: result._id, draft: e.target.value })}
                   className="w-full h-64 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
                 />
               </div>
@@ -135,16 +127,24 @@ export default function Home() {
                 <div className="text-sm text-gray-600">
                   <strong>To:</strong> {result.emails.join(', ') || 'Unknown'}
                 </div>
-                <button
-                  onClick={() => sendEmail(result, index)}
-                  disabled={status[result.domain] === 'Sent' || status[result.domain] === 'Sending...'}
-                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${status[result.domain] === 'Sent'
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => blacklistMutation({ id: result._id })}
+                    className="px-4 py-2 rounded-lg font-medium transition-colors bg-red-100 text-red-700 hover:bg-red-200"
+                  >
+                    Blacklist
+                  </button>
+                  <button
+                    onClick={() => sendEmail(result)}
+                    disabled={status[result.domain] === 'Sent' || status[result.domain] === 'Sending...' || result.status === 'Contacted'}
+                    className={`px-4 py-2 rounded-lg font-medium transition-colors ${status[result.domain] === 'Sent' || result.status === 'Contacted'
                       ? 'bg-green-500 text-white cursor-default'
                       : 'bg-gray-900 text-white hover:bg-gray-800'
-                    }`}
-                >
-                  {status[result.domain] || 'Approve & Send'}
-                </button>
+                      }`}
+                  >
+                    {status[result.domain] === 'Sent' || result.status === 'Contacted' ? 'Sent' : (status[result.domain] || 'Approve & Send')}
+                  </button>
+                </div>
               </div>
             </div>
           ))}
