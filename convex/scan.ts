@@ -20,29 +20,50 @@ async function fetchHtml(url: string) {
   }
 }
 
-async function googleSearchFounders(companyName: string): Promise<string[]> {
-  const query = `${companyName} founders linkedin`;
-  const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
-  const html = await fetchHtml(url);
-  if (!html) return [];
-
-  const $ = cheerio.load(html);
-  const founders: string[] = [];
-  
-  $('div.g').each((_, el) => {
-    const text = $(el).text();
-    if (text.includes('Founder') || text.includes('Co-founder')) {
-        const parts = $(el).find('h3').text().split(/[-|–]/);
-        if (parts.length > 0) {
-            const name = parts[0].trim();
-            if (name.split(' ').length >= 2 && name.split(' ').length <= 3 && !/\d/.test(name)) {
-                if (!founders.includes(name)) founders.push(name);
-            }
-        }
+async function getKeyPeople(companyName: string, websiteUrl: string, apiKey: string): Promise<{ name: string; role: string }[]> {
+    if (!apiKey) {
+        console.warn("GEMINI_API_KEY is not set. Cannot find key people.");
+        return [];
     }
-  });
 
-  return founders.slice(0, 2);
+    try {
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ 
+            model: "gemini-2.0-flash",
+            tools: [{ googleSearch: {} } as any],
+        });
+        const prompt = `
+          I need to find the key executives at the company "${companyName}" with website "${websiteUrl}".
+          Specifically, I am strictly looking for ONLY the following roles:
+          1. Founders or Co-founders
+          2. CEO
+          3. CTO
+          4. COO (INCLUDE THIS ONLY IF NO CTO IS FOUND)
+
+          Do NOT return any other roles like VP, Head of Engineering, etc.
+
+          Use your browsing capabilities to find this information on their website or other reliable sources.
+
+          Please extract the names and roles of these people.
+          Prioritize accuracy. If a name is not clearly associated with one of these roles, do not include it.
+
+          Return the result as a JSON array of objects with "name" and "role" keys.
+          Example: [{"name": "Jane Doe", "role": "CEO & Founder"}, {"name": "John Smith", "role": "CTO"}]
+          
+          If no one is found, return an empty array [].
+          Output ONLY the JSON.
+        `;
+
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        let text = response.text().trim();
+        // Clean up markdown code blocks if present
+        text = text.replace(/^```json\n?|\n?```$/g, '');
+        return JSON.parse(text);
+    } catch (error) {
+        console.error("Error getting key people:", error);
+        return [];
+    }
 }
 
 async function generatePOV(companyName: string, description: string, apiKey: string): Promise<string> {
@@ -160,9 +181,12 @@ export const run = action({
         let rolesFound = false;
         let founders: string[] = [];
 
+        let siteText = '';
+
         if (siteHtml) {
             const $site = cheerio.load(siteHtml);
-            const text = $site('body').text().toLowerCase();
+            siteText = $site('body').text();
+            const text = siteText.toLowerCase();
             const keywords = ['product engineer', 'frontend', 'design engineer', 'software engineer', 'developer', 'full stack', 'web', 'react', 'typescript'];
             if (keywords.some(k => text.includes(k))) {
                 rolesFound = true;
@@ -173,16 +197,44 @@ export const run = action({
         }
 
         if (rolesFound) {
-            founders = await googleSearchFounders(companyName);
-            const founderName = founders[0] || 'Founder';
-            const [firstName, lastName] = founderName.split(' ');
-            const emails = founders.length > 0 && lastName 
-                ? generateEmailPermutations(firstName, lastName, domain) 
-                : [`hello@${domain}`, `founders@${domain}`];
+            const keyPeopleRaw = await getKeyPeople(companyName, websiteUrl, apiKey);
+            // Limit to maximum of 4 people
+            const keyPeople = keyPeopleRaw.slice(0, 4);
+            founders = keyPeople.map(p => `${p.name} (${p.role})`);
+            
+            let emails: string[] = [];
+            let greeting = '';
+
+            if (keyPeople.length > 0) {
+                // Generate greeting for all people
+                const firstNames = keyPeople.map(p => p.name.split(' ')[0]);
+                
+                if (firstNames.length === 1) {
+                    greeting = `Hi ${firstNames[0]}`;
+                } else if (firstNames.length === 2) {
+                    greeting = `Hi ${firstNames[0]} and Hi ${firstNames[1]}`;
+                } else {
+                    // For 3 or more people: "Hi A, Hi B, and Hi C"
+                    const allButLast = firstNames.slice(0, -1).map(name => `Hi ${name}`).join(', ');
+                    greeting = `${allButLast}, and Hi ${firstNames[firstNames.length - 1]}`;
+                }
+
+                for (const person of keyPeople) {
+                    const nameParts = person.name.trim().split(' ');
+                    if (nameParts.length >= 2) {
+                        const first = nameParts[0];
+                        const last = nameParts[nameParts.length - 1];
+                        emails.push(...generateEmailPermutations(first, last, domain));
+                    }
+                }
+            } else {
+                emails = [`hello@${domain}`, `founders@${domain}`];
+                greeting = 'Hi there';
+            }
 
             const pov = await generatePOV(companyName, description, apiKey);
 
-            const emailDraft = `Hi ${firstName || 'there'},
+            const emailDraft = `${greeting},
 
 I’m Meshach, I’m a Product Engineer and designer. I’ve worked with start-ups across Europe, taking products from raw idea to launch in weeks.
 

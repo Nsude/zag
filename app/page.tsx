@@ -45,9 +45,13 @@ export default function Home() {
       return;
     }
 
+    // Get remaining emails as CC's
+    const cc = result.emails.length > 1 ? result.emails.slice(1).join(', ') : undefined;
+
     try {
       await sendEmailAction({
         to,
+        ...(cc && { cc }), // Only include cc if there are additional emails
         subject: `Intro: ${result.companyName}`,
         body: result.emailDraft,
         companyName: result.companyName,
@@ -123,7 +127,15 @@ export default function Home() {
 
               <div className="flex justify-between items-center">
                 <div className="text-sm text-gray-600">
-                  <strong>To:</strong> {result.emails.join(', ') || 'Unknown'}
+                  {result.emails.length > 0 && (
+                    <>
+                      <div><strong>To:</strong> {result.emails[0]}</div>
+                      {result.emails.length > 1 && (
+                        <div><strong>CC:</strong> {result.emails.slice(1).join(', ')}</div>
+                      )}
+                    </>
+                  )}
+                  {result.emails.length === 0 && <span>No emails generated</span>}
                 </div>
                 <div className="flex gap-2">
                   <button
