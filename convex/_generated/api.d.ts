@@ -9,6 +9,7 @@
  */
 
 import type * as companies from "../companies.js";
+import type * as email from "../email.js";
 import type * as scan from "../scan.js";
 import type * as utils from "../utils.js";
 
@@ -20,6 +21,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   companies: typeof companies;
+  email: typeof email;
   scan: typeof scan;
   utils: typeof utils;
 }>;

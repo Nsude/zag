@@ -2,9 +2,25 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
 export const list = query({
+  args: { page: v.number() },
+  handler: async (ctx, args) => {
+    const limit = 10;
+    const skip = (args.page - 1) * limit;
+    
+    // Note: For a larger app, we would use cursor-based pagination.
+    // For "Page X of Y" style, we need to count everything anyway.
+    const all = await ctx.db.query("companies").withIndex("by_lastScannedAt").order("desc").collect();
+    const filtered = all.filter(c => c.status !== 'Blacklisted');
+    
+    return filtered.slice(skip, skip + limit);
+  },
+});
+
+export const count = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db.query("companies").order("desc").take(100);
+    const all = await ctx.db.query("companies").collect();
+    return all.filter(c => c.status !== 'Blacklisted').length;
   },
 });
 

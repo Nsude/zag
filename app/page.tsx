@@ -7,9 +7,13 @@ import { Id } from "@/convex/_generated/dataModel";
 
 export default function Home() {
   const [scanning, setScanning] = useState(false);
-  const allResults = useQuery(api.companies.list) || [];
-  const results = allResults.filter((r: any) => r.status !== 'Blacklisted');
+  const [page, setPage] = useState(1);
+  const results = useQuery(api.companies.list, { page }) || [];
+  const totalCount = useQuery(api.companies.count) || 0;
+  const totalPages = Math.ceil(totalCount / 10);
+
   const runScan = useAction(api.scan.run);
+  const sendEmailAction = useAction(api.email.send);
   const updateDraftMutation = useMutation(api.companies.updateDraft);
   const markContactedMutation = useMutation(api.companies.markContacted);
   const blacklistMutation = useMutation(api.companies.blacklist);
@@ -42,29 +46,23 @@ export default function Home() {
     }
 
     try {
-      const res = await fetch('/api/send', {
-        method: 'POST',
-        body: JSON.stringify({
-          to,
-          subject: `Intro: ${result.companyName}`,
-          body: result.emailDraft,
-          companyName: result.companyName,
-          domain: result.domain,
-          founderName: result.founders[0] || 'Founder'
-        }),
+      await sendEmailAction({
+        to,
+        subject: `Intro: ${result.companyName}`,
+        body: result.emailDraft,
+        companyName: result.companyName,
+        domain: result.domain,
+        founderName: result.founders[0] || 'Founder'
       });
 
-      if (res.ok) {
-        setStatus(prev => ({ ...prev, [result.domain]: 'Sent' }));
-        await markContactedMutation({ id: result._id });
-      } else {
-        setStatus(prev => ({ ...prev, [result.domain]: 'Failed' }));
-      }
+      setStatus(prev => ({ ...prev, [result.domain]: 'Sent' }));
+      await markContactedMutation({ id: result._id });
     } catch (error) {
       console.error('Send failed:', error);
       setStatus(prev => ({ ...prev, [result.domain]: 'Error' }));
     }
   };
+
 
   return (
     <main className="min-h-screen p-8 bg-gray-50 text-gray-900 font-sans">
@@ -149,6 +147,29 @@ export default function Home() {
             </div>
           ))}
         </div>
+
+        {/* Pagination Controls */}
+        {results.length > 0 && (
+          <div className="mt-8 flex justify-center items-center gap-4">
+            <button
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="w-12 h-12 flex items-center justify-center bg-gray-200 rounded-xl hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              ←
+            </button>
+            <span className="text-gray-600 font-medium">
+              Page {page} of {totalPages || 1}
+            </span>
+            <button
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              className="w-12 h-12 flex items-center justify-center bg-gray-200 rounded-xl hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              →
+            </button>
+          </div>
+        )}
       </div>
     </main>
   );

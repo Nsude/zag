@@ -12,5 +12,7 @@ export default defineSchema({
     emailDraft: v.string(),
     status: v.optional(v.string()), // 'New', 'Contacted', 'Skipped'
     lastScannedAt: v.number(),
-  }).index("by_domain", ["domain"]),
+  })
+    .index("by_domain", ["domain"])
+    .index("by_lastScannedAt", ["lastScannedAt"]),
 });
