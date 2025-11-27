@@ -114,17 +114,52 @@ export const run = action({
     const limit = args.limit || 5;
     const apiKey = process.env.GEMINI_API_KEY || '';
 
-    console.log("Fetching startups.gallery...");
-    const galleryHtml = await fetchHtml('https://startups.gallery/');
-    if (!galleryHtml) throw new Error("Failed to fetch gallery");
+    console.log("Fetching categories from startups.gallery...");
+    const categoriesHtml = await fetchHtml('https://startups.gallery/categories');
+    const categoryLinks: string[] = ['https://startups.gallery/']; // Always include homepage
 
-    const $ = cheerio.load(galleryHtml);
+    if (categoriesHtml) {
+        const $cat = cheerio.load(categoriesHtml);
+        $cat('a[href^="./categories/"]').each((_, el) => {
+            const href = $cat(el).attr('href');
+            if (href) categoryLinks.push(`https://startups.gallery${href.substring(1)}`);
+        });
+    }
+
+    // Randomly select 3 categories + homepage (already in list)
+    // We shuffle the category list (excluding homepage) and pick top 3
+    const potentialCategories = categoryLinks.slice(1);
+    for (let i = potentialCategories.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [potentialCategories[i], potentialCategories[j]] = [potentialCategories[j], potentialCategories[i]];
+    }
+    const selectedSources = ['https://startups.gallery/', ...potentialCategories.slice(0, 3)];
+    
+    console.log(`Selected sources: ${selectedSources.join(', ')}`);
+
     const companyLinks: string[] = [];
-    $('a[href^="./companies/"]').each((_, el) => {
-        const href = $(el).attr('href');
-        if (href) companyLinks.push(`https://startups.gallery${href.substring(1)}`);
-    });
-    console.log(`Found ${companyLinks.length} company links`);
+    
+    // Fetch from all selected sources in parallel
+    await Promise.all(selectedSources.map(async (sourceUrl) => {
+        try {
+            const html = await fetchHtml(sourceUrl);
+            if (!html) return;
+            const $ = cheerio.load(html);
+            $('a[href^="./companies/"]').each((_, el) => {
+                const href = $(el).attr('href');
+                if (href) {
+                    const fullLink = `https://startups.gallery${href.substring(1)}`;
+                    if (!companyLinks.includes(fullLink)) {
+                        companyLinks.push(fullLink);
+                    }
+                }
+            });
+        } catch (err) {
+            console.error(`Failed to fetch source ${sourceUrl}:`, err);
+        }
+    }));
+
+    console.log(`Found ${companyLinks.length} unique company links from ${selectedSources.length} sources`);
 
     let processedCount = 0;
     for (const link of companyLinks) {
@@ -174,10 +209,22 @@ export const run = action({
 
         const domain = extractDomain(websiteUrl);
         
-        const isContacted = await ctx.runQuery(api.companies.isContacted, { domain });
-        if (isContacted) {
-            console.log(`Skipping ${companyName} (already contacted)`);
-            continue;
+        // Check if we've scanned this company recently (last 30 days)
+        // or if it's already contacted/blacklisted
+        const existingCompany = await ctx.runQuery(api.companies.getByDomain, { domain });
+        
+        if (existingCompany) {
+            if (existingCompany.status === 'Contacted' || existingCompany.status === 'Blacklisted') {
+                console.log(`Skipping ${companyName} (Status: ${existingCompany.status})`);
+                continue;
+            }
+
+            // Skip if scanned in the last 30 days
+            const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+            if (existingCompany.lastScannedAt && existingCompany.lastScannedAt > thirtyDaysAgo) {
+                console.log(`Skipping ${companyName} (Scanned recently: ${new Date(existingCompany.lastScannedAt).toLocaleDateString()})`);
+                continue;
+            }
         }
 
         const siteHtml = await fetchHtml(websiteUrl);
@@ -251,9 +298,7 @@ From what I can tell, the next challenge is scale: turning that great product in
 
 That's what I do best. Taking complex systems and building interfaces that feel intuitive, the kind where users don't need to think about how things work.
 
-There's a version of ${companyName} that becomes the default for most teams, not just the technical ones. 
-
-I'd love to show you what that could look like.
+There's a version of ${companyName} that becomes the default for most teams, I'd love to show you what that could look like.
 
 Here's my calendar: https://cal.com/meshach-nsude, if you're open to a conversation.
 

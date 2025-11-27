@@ -18,7 +18,9 @@ For each company, the code:
 2.  **Extracts Metadata:** Finds the company name, website URL, and description.
     *   *Fallback:* If description is missing, it tries to find a substantial paragraph on the page.
 3.  **Finds Website:** Looks for a "Visit Website" link or other external links.
-4.  **Deduplication:** Checks `api.companies.isContacted` to see if the domain has already been processed.
+4.  **Deduplication:** Checks `api.companies.getByDomain` to see if the company exists.
+    - Skips if status is 'Contacted' or 'Blacklisted'.
+    - Skips if `lastScannedAt` is within the last 30 days (smart skipping).
 5.  **Role Detection:** Visits the company's actual website and searches for keywords (e.g., "product engineer", "react") to see if they are hiring for relevant roles.
 
 ### Rate Limiting
