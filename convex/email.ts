@@ -6,6 +6,7 @@ import nodemailer from "nodemailer";
 export const send = action({
   args: {
     to: v.string(),
+    cc: v.optional(v.string()),
     subject: v.string(),
     body: v.string(),
     companyName: v.string(),
@@ -13,7 +14,7 @@ export const send = action({
     founderName: v.string(),
   },
   handler: async (ctx, args) => {
-    const { to, subject, body, companyName, domain, founderName } = args;
+    const { to, cc, subject, body, companyName, domain, founderName } = args;
 
     if (!process.env.SMTP_HOST) {
       throw new Error("SMTP_HOST is not defined");
@@ -38,6 +39,7 @@ export const send = action({
       const info = await transporter.sendMail({
         from: process.env.SMTP_FROM || '"Founder Outreach" <hello@example.com>',
         to,
+        ...(cc && { cc }), // Only include cc if it's provided
         subject,
         html: body, // Assuming the body is HTML
       });

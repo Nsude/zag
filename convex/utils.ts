@@ -3,12 +3,9 @@ export function generateEmailPermutations(firstName: string, lastName: string, d
   const last = lastName.toLowerCase();
   const cleanDomain = domain.replace(/^www\./, '');
 
+  // User requested strict "firstname@domain" pattern
   const permutations = [
     `${first}@${cleanDomain}`,
-    `${first}.${last}@${cleanDomain}`,
-    `${first}${last}@${cleanDomain}`,
-    `${first[0]}${last}@${cleanDomain}`,
-    `${first}_${last}@${cleanDomain}`,
   ];
 
   return permutations;
