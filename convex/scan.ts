@@ -7,6 +7,9 @@ import { generateEmailPermutations, extractDomain } from "./utils";
 
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36';
 
+// Helper function to add delays for rate limiting
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 async function fetchHtml(url: string) {
   try {
     const res = await fetch(url, {
@@ -225,6 +228,10 @@ export const run = action({
                         const first = nameParts[0];
                         const last = nameParts[nameParts.length - 1];
                         emails.push(...generateEmailPermutations(first, last, domain));
+                    } else if (nameParts.length === 1) {
+                        // Handle single names (e.g., "John") - use the name as both first and last
+                        const name = nameParts[0];
+                        emails.push(...generateEmailPermutations(name, name, domain));
                     }
                 }
             } else {
@@ -236,7 +243,7 @@ export const run = action({
 
             const emailDraft = `${greeting},
 
-I’m Meshach, I’m a Product Engineer and designer. I’ve worked with start-ups across Europe, taking products from raw idea to launch in weeks.
+I’m Meshach, I’m a Design Engineer. I’ve worked within start-ups across Europe, taking products from raw idea to launch in weeks.
 
 You’ve built something incredible with ${companyName}. ${pov}
 
@@ -247,6 +254,8 @@ That's what I do best. Taking complex systems and building interfaces that feel 
 There's a version of ${companyName} that becomes the default for most teams, not just the technical ones. 
 
 I'd love to show you what that could look like.
+
+Here's my calendar: https://cal.com/meshach-nsude, if you're open to a conversation.
 
 Best,
 Meshach
@@ -264,6 +273,12 @@ LinkedIn: linkedin.com/in/nsude-meshach`;
                 emailDraft,
             });
             processedCount++;
+            
+            // Rate limiting: Wait 5 seconds between companies to stay under 15 requests/minute
+            // (2 API calls per company × 5 companies = 10 calls in ~25 seconds)
+            if (processedCount < limit) {
+                await sleep(5000);
+            }
         }
     }
   },

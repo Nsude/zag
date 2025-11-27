@@ -52,7 +52,7 @@ export default function Home() {
       await sendEmailAction({
         to,
         ...(cc && { cc }), // Only include cc if there are additional emails
-        subject: `Intro: ${result.companyName}`,
+        subject: "I built an AI thinking app, ironic since I'm overthinking this email",
         body: result.emailDraft,
         companyName: result.companyName,
         domain: result.domain,
@@ -73,13 +73,39 @@ export default function Home() {
       <div className="max-w-4xl mx-auto">
         <header className="mb-8 flex justify-between items-center">
           <h1 className="text-3xl font-bold text-gray-900">Founder Outreach Automation</h1>
-          <button
-            onClick={startScan}
-            disabled={scanning}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
-          >
-            {scanning ? 'Scanning...' : 'Start Scan'}
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={startScan}
+              disabled={scanning || totalCount > 0}
+              className={`px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:cursor-not-allowed transition-all ${totalCount > 0 ? 'opacity-30' : 'opacity-100'
+                }`}
+              title={totalCount > 0 ? 'Companies already loaded' : 'Start initial scan'}
+            >
+              {scanning ? 'Scanning...' : 'Start Scan'}
+            </button>
+            <button
+              onClick={startScan}
+              disabled={scanning || totalCount === 0}
+              className={`w-12 h-12 flex items-center justify-center bg-gray-200 rounded-lg hover:bg-gray-300 disabled:cursor-not-allowed transition-all ${totalCount === 0 ? 'opacity-30' : 'opacity-100'
+                }`}
+              title={totalCount === 0 ? 'No companies to refresh' : 'Scan for more companies'}
+              aria-label="Refresh scan"
+            >
+              <svg
+                className={`w-5 h-5 text-gray-700 ${scanning ? 'animate-spin' : ''}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+              </svg>
+            </button>
+          </div>
         </header>
 
         {results.length === 0 && !scanning && (
