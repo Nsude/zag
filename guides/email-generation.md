@@ -57,6 +57,7 @@ The final email draft is assembled using a template string:
     - Static intro: "I’m Meshach..."
     - **Dynamic POV:** "You’ve built something incredible with ${companyName}. ${pov}"
     - Static value prop: "From what I can tell..."
+    - **Closing:** "There's a version of ${companyName}... I'd love to show you what that could look like."
     - **Calendar Link:** "Here's my calendar..."
 3.  **Signature:** Static signature with GitHub/LinkedIn links.
 
