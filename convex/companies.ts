@@ -74,14 +74,13 @@ export const blacklist = mutation({
   },
 });
 
-export const isContacted = query({
+export const getByDomain = query({
   args: { domain: v.string() },
   handler: async (ctx, args) => {
-    const existing = await ctx.db
+    return await ctx.db
       .query("companies")
       .withIndex("by_domain", (q) => q.eq("domain", args.domain))
       .first();
-    return existing?.status === "Contacted" || existing?.status === "Blacklisted";
   },
 });
 
